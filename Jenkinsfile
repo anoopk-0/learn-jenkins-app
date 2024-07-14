@@ -11,6 +11,7 @@ pipeline {
             }
             steps {
                 sh '''
+                  cleanWs() 
                   ls -la >> files
                   npm ci
                   npm run build
@@ -23,21 +24,10 @@ pipeline {
             steps {
                 sh '''
                   echo 'Running the application test'
+                
                   npm run test
                 '''
             }
-        }
-    }
-    post {
-        always {
-            archiveArtifacts artifacts: '**/files, **/versionFile', allowEmptyArchive: true
-            junit '**/test-results/*.xml'
-        }
-        success {
-            echo 'Pipeline succeeded!'
-        }
-        failure {
-            echo 'Pipeline failed.'
         }
     }
 }
