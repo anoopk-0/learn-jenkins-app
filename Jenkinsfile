@@ -83,7 +83,7 @@ pipeline {
             archiveArtifacts artifacts: '**/files, **/versionFile', allowEmptyArchive: true
 
             // For reporting about the test
-            junit '**/test-results/*.xml'
+            junit 'jest-results/*.xml'
         }
         success {
             echo 'Pipeline succeeded!'
