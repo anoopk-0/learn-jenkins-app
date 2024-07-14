@@ -23,7 +23,7 @@ pipeline {
             steps {
                 sh '''
                   echo 'Running the application test'
-                  test -f index.js
+                  test -f 'index.js'
                   npm run test
                 '''
             }
