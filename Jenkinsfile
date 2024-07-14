@@ -84,6 +84,8 @@ pipeline {
 
             // For reporting about the test
             junit 'jest-results/*.xml'
+
+            publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'HTML Report', reportTitles: '', useWrapperFileDirectly: true])
         }
         success {
             echo 'Pipeline succeeded!'
