@@ -4,6 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'node:18-alpine'
         NETLIFY_SITE_ID = '58fe2438-b69b-401f-90d8-d863d2d98bf4'
+        NETLIFY_AUTH_TOKEN = credentials('netify-token')
     }
 
     stages {
@@ -24,10 +25,10 @@ pipeline {
                       npm --version >> versionFile
                     '''
                     
-                    // Capture directory listing
+
                     sh 'ls -la > files'
 
-                    // Install dependencies and build the project
+
                     sh '''
                       npm ci
                       npm run build
@@ -46,7 +47,7 @@ pipeline {
                         }
                         steps {
                             script {
-                                // Check if the build artifact exists
+                                
                                 sh '''
                                 if [ ! -f build/index.html ]; then
                                     echo "Build artifact not found!"
@@ -90,8 +91,13 @@ pipeline {
                 script {
                     sh '''
                       npm install netlify-cli 
+
+                      echo "netlify Version:" > versionFile
                       node_modules/.bin/netlify --version >> versionFile
+
                       echo 'Deploying to Netlify with site id: ${NETLIFY_SITE_ID}'
+
+                      node_modules/.bin/netlify --version  status
                     '''
                 }
             }
