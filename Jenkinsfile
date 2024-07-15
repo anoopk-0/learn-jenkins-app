@@ -3,6 +3,7 @@ pipeline {
 
     environment {
         DOCKER_IMAGE = 'node:18-alpine'
+        NETLIFY_SITE_ID = '58fe2438-b69b-401f-90d8-d863d2d98bf4'
     }
 
     stages {
@@ -88,8 +89,9 @@ pipeline {
             steps {
                 script {
                     sh '''
-                      npm install netlify-cli -g
-                      netlify --version >> versionFile
+                      npm install netlify-cli 
+                      node_modules/.bin/netlify --version >> versionFile
+                      echo 'Deploying to Netlify with site id: ${NETLIFY_SITE_ID}'
                     '''
                 }
             }
