@@ -1,5 +1,5 @@
 pipeline {
-    agent any
+    agent any  
 
     environment {
         DOCKER_IMAGE = 'node:18-alpine'
@@ -24,7 +24,11 @@ pipeline {
                       echo "npm Version:" >> versionFile
                       npm --version >> versionFile
                     '''
+                    
+
                     sh 'ls -la > files'
+
+
                     sh '''
                       npm ci
                       npm run build
@@ -32,49 +36,51 @@ pipeline {
                 }
             }
         }
-        stage('Test Block Stage') {
+        stage('Test Block Stage'){
             parallel {
-                stage('Test Build Artifacts') {
-                    agent {
-                        docker {
-                            image "${DOCKER_IMAGE}"
-                            reuseNode true
+                stage('Test') {
+                        agent {
+                            docker {
+                                image "${DOCKER_IMAGE}"
+                                reuseNode true
+                            }
                         }
-                    }
-                    steps {
-                        script {
-                            sh '''
-                            if [ ! -f build/index.html ]; then
-                                echo "Build artifact not found!"
-                                exit 1
-                            fi
-                            '''
-                            // Run the tests
-                            sh 'npm test'
+                        steps {
+                            script {
+                                
+                                sh '''
+                                if [ ! -f build/index.html ]; then
+                                    echo "Build artifact not found!"
+                                    exit 1
+                                fi
+                                '''
+
+                                // Run the tests
+                                sh 'npm test'
+                            }
                         }
-                    }
                 }
-                stage('Run E2E Tests on Staging') {
-                    agent {
-                        docker {
-                            image "mcr.microsoft.com/playwright:v1.39.0-jammy"
-                            reuseNode true
+                stage('e2e test') {
+                        agent {
+                            docker {
+                                image "mcr.microsoft.com/playwright:v1.39.0-jammy"
+                                reuseNode true
+                            }
                         }
-                    }
-                    steps {
-                        script {
+                        steps {
+                            script {
                             sh '''
                             npm install serve
                             node_modules/.bin/serve -s build & 
                             sleep 10
                             npx playwright test --reporter=line
                             '''
+                            }
                         }
-                    }
                 }
             }
         }
-        stage('Deploy and Test Staging') {
+        stage('deploy stage') {
             agent {
                 docker {
                     image "${DOCKER_IMAGE}"
@@ -83,7 +89,6 @@ pipeline {
             }
             steps {
                 script {
-                    // Deploy to staging and capture the deployment URL
                     sh '''
                       npm install netlify-cli node-jq
 
@@ -95,16 +100,40 @@ pipeline {
                       node_modules/.bin/netlify  status
                       node_modules/.bin/netlify  deploy --dir=build --json > deploy-output.json
                       node_modules/.bin/node-jq -r '.deploy_url' deploy-output.json
+                      
                     '''
 
-                    env.STAGING_URL = sh(script: "node_modules/.bin/node-jq -r '.deploy_url' deploy-output.json", returnStdout: true).trim()
-
-                    // Use the captured staging URL for the E2E tests
-                    echo "Staging URL: ${env.STAGING_URL}"
+                    env.STAGING_URL = sh(script: "node_modules/.bin/node-jq -r '.deploy_url' deploy-output.json", returnStdout: true)
                 }
             }
         }
-        stage('Deploy and Test Production') {
+        stage('stag e2e test') {
+                agent {
+                    docker {
+                        image "mcr.microsoft.com/playwright:v1.39.0-jammy"
+                        reuseNode true
+                    }
+                }
+
+                environment {
+                    CI_ENVIRONMENT_URL = ${env.STAGING_URL}
+                }
+                
+                steps {
+                    script {
+                    sh '''
+                        npx playwright test --reporter=line
+                    '''
+                }
+            }
+            post {
+                always {
+
+                    publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'Stag HTML Report', reportTitles: '', useWrapperFileDirectly: true])
+                }
+            }
+        }
+        stage('deploy prod') {
             agent {
                 docker {
                     image "${DOCKER_IMAGE}"
@@ -113,7 +142,6 @@ pipeline {
             }
             steps {
                 script {
-                    // Deploy to production
                     sh '''
                       npm install netlify-cli 
 
@@ -125,34 +153,26 @@ pipeline {
                       node_modules/.bin/netlify  status
                       node_modules/.bin/netlify  deploy --dir=build --prod
                     '''
-                    // Set production URL
-                    env.PRODUCTION_URL = 'https://deft-parfait-2116ef.netlify.app'
                 }
             }
-            post {
-                always {
-                    // Run end-to-end tests on production
-                    agent {
-                        docker {
-                            image "mcr.microsoft.com/playwright:v1.39.0-jammy"
-                            reuseNode true
-                        }
+        }
+        stage('Prod e2e test') {
+                agent {
+                    docker {
+                        image "mcr.microsoft.com/playwright:v1.39.0-jammy"
+                        reuseNode true
                     }
-                    environment {
-                        CI_ENVIRONMENT_URL = "${env.PRODUCTION_URL}"
-                    }
-                    steps {
-                        script {
-                            sh '''
-                            npx playwright test --reporter=line
-                            '''
-                        }
-                        post {
-                            always {
-                                publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'Prod HTML Report', reportTitles: '', useWrapperFileDirectly: true])
-                            }
-                        }
-                    }
+                }
+
+                environment {
+                    CI_ENVIRONMENT_URL = 'https://deft-parfait-2116ef.netlify.app'
+                }
+                
+                steps {
+                    script {
+                    sh '''
+                        npx playwright test --reporter=line
+                    '''
                 }
             }
         }
