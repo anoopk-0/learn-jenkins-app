@@ -8,18 +8,6 @@ pipeline {
     }
 
     stages {
-        stage('Docker') {
-            steps {
-                sh 'docker build -t my-playwright .'
-            }
-        }
-        stage('Build') {
-            agent {
-                docker {
-                    image "${DOCKER_IMAGE}"
-                    reuseNode true
-                }
-            }
             steps {
                 script {
                     // Capture versions of Node and npm
