@@ -1,203 +1,146 @@
 pipeline {
-    agent any  
+    agent any
 
     environment {
-        DOCKER_IMAGE = 'node:18-alpine'
         NETLIFY_SITE_ID = '58fe2438-b69b-401f-90d8-d863d2d98bf4'
         NETLIFY_AUTH_TOKEN = credentials('netlify-token')
+        REACT_APP_VERSION = "1.0.$BUILD_ID"
     }
 
     stages {
+
         stage('Docker') {
             steps {
-                script {
-                    sh 'docker build -t my-image .'
-                }
+                sh 'docker build -t my-playwright .'
             }
         }
 
         stage('Build') {
             agent {
                 docker {
-                    image "${DOCKER_IMAGE}"
+                    image 'node:18-alpine'
+                    reuseNode true
                 }
             }
             steps {
-                script {
-                    // Capture versions of Node and npm
-                    sh '''
-                      echo "Node Version:" > versionFile
-                      node --version >> versionFile
-                      echo "npm Version:" >> versionFile
-                      npm --version >> versionFile
-                    '''
-
-                    sh 'ls -la > files'
-                    
-                    // Install dependencies and build
-                    sh '''
-                      npm ci
-                      npm run build
-                    '''
-                }
+                sh '''
+                    ls -la
+                    node --version
+                    npm --version
+                    npm ci
+                    npm run build
+                    ls -la
+                '''
             }
         }
 
-        stage('Test Block Stage') {
+        stage('Tests') {
             parallel {
-                stage('Test') {
+                stage('Unit tests') {
                     agent {
                         docker {
-                            image "${DOCKER_IMAGE}"
+                            image 'node:18-alpine'
+                            reuseNode true
                         }
                     }
-                    steps {
-                        script {
-                            sh '''
-                            if [ ! -f build/index.html ]; then
-                                echo "Build artifact not found!"
-                                exit 1
-                            fi
-                            '''
 
-                            // Run the tests
-                            sh 'npm test'
-                        }
-                    }
-                }
-                stage('e2e test') {
-                    agent {
-                        docker {
-                            image "mcr.microsoft.com/playwright:v1.39.0-jammy"
-                        }
-                    }
                     steps {
-                        script {
-                            sh '''
-                            npm install serve
-                            node_modules/.bin/serve -s build & 
-                            sleep 10
-                            npx playwright test --reporter=line
-                            '''
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Deploy to Staging') {
-            agent {
-                docker {
-                    image "${DOCKER_IMAGE}"
-                }
-            }
-            steps {
-                script {
-                    try {
                         sh '''
-                          npm install netlify-cli node-jq
-
-                          echo "netlify Version:" > versionFile
-                          node_modules/.bin/netlify --version >> versionFile
-
-                          echo 'Deploying to Netlify with site id: ${NETLIFY_SITE_ID}'
-
-                          node_modules/.bin/netlify status
-                          node_modules/.bin/netlify deploy --dir=build --json > deploy-output.json
-                          echo "Staging URL:" > stagingUrl
-                          node_modules/.bin/node-jq -r '.deploy_url' deploy-output.json >> stagingUrl
+                            #test -f build/index.html
+                            npm test
                         '''
-                        
-                        env.STAGING_URL = sh(script: "cat stagingUrl", returnStdout: true).trim()
-                    } catch (Exception e) {
-                        currentBuild.result = 'FAILURE'
-                        throw e
+                    }
+                    post {
+                        always {
+                            junit 'jest-results/junit.xml'
+                        }
+                    }
+                }
+
+                stage('E2E') {
+                    agent {
+                        docker {
+                            image 'mcr.microsoft.com/playwright:v1.39.0-jammy'
+                            reuseNode true
+                        }
+                    }
+
+                    steps {
+                        sh '''
+                            npm install serve
+                            node_modules/.bin/serve -s build &
+                            sleep 10
+                            npx playwright test  --reporter=html
+                        '''
+                    }
+
+                    post {
+                        always {
+                            publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'Local E2E', reportTitles: '', useWrapperFileDirectly: true])
+                        }
                     }
                 }
             }
         }
 
-        stage('Staging e2e test') {
+        stage('Deploy staging') {
             agent {
                 docker {
-                    image "mcr.microsoft.com/playwright:v1.39.0-jammy"
+                    image 'my-playwright'
+                    reuseNode true
                 }
             }
+
             environment {
-                CI_ENVIRONMENT_URL = "${env.STAGING_URL}"
+                CI_ENVIRONMENT_URL = 'STAGING_URL_TO_BE_SET'
             }
+
             steps {
-                script {
-                    sh 'npx playwright test --reporter=line'
-                }
+                sh '''
+                    netlify --version
+                    echo "Deploying to staging. Site ID: $NETLIFY_SITE_ID"
+                    netlify status
+                    netlify deploy --dir=build --json > deploy-output.json
+                    CI_ENVIRONMENT_URL=$(node-jq -r '.deploy_url' deploy-output.json)
+                    npx playwright test  --reporter=html
+                '''
             }
+
             post {
                 always {
-                    publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'Staging HTML Report', reportTitles: '', useWrapperFileDirectly: true])
+                    publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'Staging E2E', reportTitles: '', useWrapperFileDirectly: true])
                 }
             }
         }
 
-        stage('Deploy to Production') {
+        stage('Deploy prod') {
             agent {
                 docker {
-                    image "${DOCKER_IMAGE}"
+                    image 'my-playwright'
+                    reuseNode true
                 }
             }
-            steps {
-                script {
-                    sh '''
-                      npm install netlify-cli 
 
-                      echo "netlify Version:" > versionFile
-                      node_modules/.bin/netlify --version >> versionFile
-
-                      echo 'Deploying to Netlify with site id: ${NETLIFY_SITE_ID}'
-
-                      node_modules/.bin/netlify status
-                      node_modules/.bin/netlify deploy --dir=build --prod
-                    '''
-                }
-            }
-        }
-
-        stage('Production e2e test') {
-            agent {
-                docker {
-                    image "mcr.microsoft.com/playwright:v1.39.0-jammy"
-                }
-            }
             environment {
-                CI_ENVIRONMENT_URL = 'https://deft-parfait-2116ef.netlify.app'
+                CI_ENVIRONMENT_URL = 'YOUR NETLIFY SITE URL'
             }
+
             steps {
-                script {
-                    sh 'npx playwright test --reporter=line'
-                }
+                sh '''
+                    node --version
+                    netlify --version
+                    echo "Deploying to production. Site ID: $NETLIFY_SITE_ID"
+                    netlify status
+                    netlify deploy --dir=build --prod
+                    npx playwright test  --reporter=html
+                '''
             }
+
             post {
                 always {
-                    publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'Production HTML Report', reportTitles: '', useWrapperFileDirectly: true])
+                    publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'Prod E2E', reportTitles: '', useWrapperFileDirectly: true])
                 }
             }
-        }
-    }
-
-    post {
-        always {
-            // Archive build artifacts and test results
-            archiveArtifacts artifacts: '**/files, **/versionFile', allowEmptyArchive: true
-
-            // For reporting about the test
-            junit 'jest-results/*.xml'
-
-            publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'HTML Report', reportTitles: '', useWrapperFileDirectly: true])
-        }
-        success {
-            echo 'Pipeline succeeded!'
-        }
-        failure {
-            echo 'Pipeline failed.'
         }
     }
 }
