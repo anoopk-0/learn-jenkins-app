@@ -9,6 +9,12 @@ pipeline {
 
     stages {
         stage('docker') {
+            agent {
+                docker {
+                    image "${DOCKER_IMAGE}"
+                    reuseNode true
+                }
+            }
             steps {
                 script {
                 sh '''
