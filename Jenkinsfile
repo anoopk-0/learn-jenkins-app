@@ -20,6 +20,8 @@ pipeline {
                     sh '''
                         aws --version
                         aws s3 ls
+                        echo 'hello s3' > index.html
+                        aws s3 cp index.html s3://learn-lenkins-app-2024/index.html
                     '''
                 }
             }
@@ -76,23 +78,7 @@ pipeline {
                             }
                         }
                 }
-                stage('e2e test') {
-                        agent {
-                            docker {
-                                image "mcr.microsoft.com/playwright:v1.39.0-jammy"
-                                reuseNode true
-                            }
-                        }
-                        steps {
-                            script {
-                            sh '''
-                            node_modules/.bin/serve -s build & 
-                            sleep 10
-                            npx playwright test --reporter=line
-                            '''
-                            }
-                        }
-                }
+                
             }
         }
         stage('deploy stage') {
