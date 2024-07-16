@@ -8,19 +8,9 @@ pipeline {
     }
 
     stages {
-        stage('docker') {
-            agent {
-                docker {
-                    image "${DOCKER_IMAGE}"
-                    reuseNode true
-                }
-            }
+        stage('Docker') {
             steps {
-                script {
-                sh '''
-                  docker build -t playwright-image .
-                '''
-               }
+                sh 'docker build -t my-playwright .'
             }
         }
         stage('Build') {
