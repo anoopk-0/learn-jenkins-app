@@ -9,17 +9,7 @@ pipeline {
 
     stages {
 
-        stage('Docker') {
-            agent {
-                docker {
-                    image 'node:18-alpine'
-                    reuseNode true
-                }
-            }
-            steps {
-                sh 'docker build -t my-playwright .'
-             }
-        }
+        
         
         stage('AWS') {
             agent {
@@ -83,7 +73,7 @@ pipeline {
                 stage('E2E') {
                     agent {
                         docker {
-                            image 'my-playwright'
+                            image 'mcr.microsoft.com/playwright:v1.45.1-jammy'
                             reuseNode true
                         }
                     }
@@ -108,7 +98,7 @@ pipeline {
         stage('Deploy staging') {
             agent {
                 docker {
-                    image 'my-playwright'
+                    image 'mcr.microsoft.com/playwright:v1.45.1-jammy'
                     reuseNode true
                 }
             }
@@ -138,7 +128,7 @@ pipeline {
         stage('Deploy prod') {
             agent {
                 docker {
-                    image 'my-playwright'
+                    image 'mcr.microsoft.com/playwright:v1.45.1-jammy'
                     reuseNode true
                 }
             }
