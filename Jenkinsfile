@@ -1,16 +1,14 @@
 pipeline {
-    agent any
+    agent any  
 
     environment {
+        DOCKER_IMAGE = 'node:18-alpine'
         NETLIFY_SITE_ID = '58fe2438-b69b-401f-90d8-d863d2d98bf4'
         NETLIFY_AUTH_TOKEN = credentials('netify-token')
     }
 
     stages {
-
-        
-        
-        stage('AWS') {
+          stage('AWS') {
             agent {
                 docker {
                     image 'amazon/aws-cli'
@@ -26,111 +24,188 @@ pipeline {
                 }
             }
         }
-
         stage('Build') {
             agent {
                 docker {
-                    image 'node:18-alpine'
+                    image "${DOCKER_IMAGE}"
                     reuseNode true
                 }
             }
             steps {
-                sh '''
-                    ls -la
-                    node --version
-                    npm --version
-                    npm ci
-                    npm run build
-                    ls -la
-                '''
+                script {
+                    // Capture versions of Node and npm
+                    sh '''
+                      echo "Node Version:" > versionFile
+                      node --version >> versionFile
+                      echo "npm Version:" >> versionFile
+                      npm --version >> versionFile
+                    '''
+                    
+
+                    sh 'ls -la > files'
+
+
+                    sh '''
+                      npm ci
+                      npm run build
+                    '''
+                }
             }
         }
-
-        stage('Tests') {
+        stage('Test Block Stage'){
             parallel {
-                stage('Unit tests') {
-                    agent {
-                        docker {
-                            image 'node:18-alpine'
-                            reuseNode true
+                stage('Test') {
+                        agent {
+                            docker {
+                                image "${DOCKER_IMAGE}"
+                                reuseNode true
+                            }
                         }
-                    }
+                        steps {
+                            script {
+                                
+                                sh '''
+                                if [ ! -f build/index.html ]; then
+                                    echo "Build artifact not found!"
+                                    exit 1
+                                fi
+                                '''
 
-                    steps {
-                        sh '''
-                            #test -f build/index.html
-                            npm test
-                        '''
-                    }
-                    post {
-                        always {
-                            junit 'jest-results/junit.xml'
+                                // Run the tests
+                                sh 'npm test'
+                            }
                         }
-                    }
                 }
-
-
-            }
-        }
-
-        stage('Deploy staging') {
-            agent {
-                docker {
-                    image 'mcr.microsoft.com/playwright:v1.39.0-jammy'
-                    reuseNode true
-                }
-            }
-
-            environment {
-                CI_ENVIRONMENT_URL = 'STAGING_URL_TO_BE_SET'
-            }
-
-            steps {
-                sh '''
-                    netlify --version
-                    echo "Deploying to staging. Site ID: $NETLIFY_SITE_ID"
-                    netlify status
-                    netlify deploy --dir=build --json > deploy-output.json
-                    CI_ENVIRONMENT_URL=$(jq -r '.deploy_url' deploy-output.json)
-                    npx playwright test  --reporter=html
-                '''
-            }
-
-            post {
-                always {
-                    publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'Staging E2E', reportTitles: '', useWrapperFileDirectly: true])
+                stage('e2e test') {
+                        agent {
+                            docker {
+                                image "mcr.microsoft.com/playwright:v1.39.0-jammy"
+                                reuseNode true
+                            }
+                        }
+                        steps {
+                            script {
+                            sh '''
+                            npm install serve
+                            node_modules/.bin/serve -s build & 
+                            sleep 10
+                            npx playwright test --reporter=line
+                            '''
+                            }
+                        }
                 }
             }
         }
-
-        stage('Deploy prod') {
+        stage('deploy stage') {
             agent {
                 docker {
-                    image 'mcr.microsoft.com/playwright:v1.39.0-jammy'
+                    image "${DOCKER_IMAGE}"
                     reuseNode true
                 }
             }
-
-            environment {
-                CI_ENVIRONMENT_URL = 'YOUR NETLIFY SITE URL'
-            }
-
             steps {
-                sh '''
-                    node --version
-                    netlify --version
-                    echo "Deploying to production. Site ID: $NETLIFY_SITE_ID"
-                    netlify status
-                    netlify deploy --dir=build --prod
-                    npx playwright test  --reporter=html
-                '''
-            }
+                script {
+                    sh '''
+                      npm install netlify-cli node-jq
 
-            post {
-                always {
-                    publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'Prod E2E', reportTitles: '', useWrapperFileDirectly: true])
+                      echo "netlify Version:" > versionFile
+                      node_modules/.bin/netlify --version >> versionFile
+
+                      echo 'Deploying to Netlify with site id: ${NETLIFY_SITE_ID}'
+
+                      node_modules/.bin/netlify  status
+                      node_modules/.bin/netlify  deploy --dir=build --json > deploy-output.json
+                      node_modules/.bin/node-jq -r '.deploy_url' deploy-output.json
+                      
+                    '''
+
+                    env.STAGING_URL = sh(script: "node_modules/.bin/node-jq -r '.deploy_url' deploy-output.json", returnStdout: true)
                 }
             }
+        }
+        stage('stag e2e test') {
+                agent {
+                    docker {
+                        image "mcr.microsoft.com/playwright:v1.39.0-jammy"
+                        reuseNode true
+                    }
+                }
+
+                environment {
+                    CI_ENVIRONMENT_URL = "${env.STAGING_URL}"
+                }
+                
+                steps {
+                    script {
+                    sh '''
+                        npx playwright test --reporter=line
+                    '''
+                }
+            }
+            post {
+                always {
+
+                    publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'Stag HTML Report', reportTitles: '', useWrapperFileDirectly: true])
+                }
+            }
+        }
+        stage('deploy prod') {
+            agent {
+                docker {
+                    image "${DOCKER_IMAGE}"
+                    reuseNode true
+                }
+            }
+            steps {
+                script {
+                    sh '''
+                      npm install netlify-cli 
+
+                      echo "netlify Version:" > versionFile
+                      node_modules/.bin/netlify --version >> versionFile
+
+                      echo 'Deploying to Netlify with site id: ${NETLIFY_SITE_ID}'
+
+                      node_modules/.bin/netlify  status
+                      node_modules/.bin/netlify  deploy --dir=build --prod
+                    '''
+                }
+            }
+        }
+        stage('Prod e2e test') {
+                agent {
+                    docker {
+                        image "mcr.microsoft.com/playwright:v1.39.0-jammy"
+                        reuseNode true
+                    }
+                }
+
+                environment {
+                    CI_ENVIRONMENT_URL = 'https://deft-parfait-2116ef.netlify.app'
+                }
+                
+                steps {
+                    script {
+                    sh '''
+                        npx playwright test --reporter=line
+                    '''
+                }
+
+                 always {
+                     
+                     publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'PROD Report', reportTitles: '', useWrapperFileDirectly: true])
+             }
+            }
+            
+        }
+    }
+    post {
+       
+        success {
+            echo 'Pipeline succeeded!'
+        }
+        failure {
+            echo 'Pipeline failed.'
         }
     }
 }
