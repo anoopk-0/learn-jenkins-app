@@ -8,24 +8,7 @@ pipeline {
     }
 
     stages {
-          stage('AWS') {
-            agent {
-                docker {
-                    image 'amazon/aws-cli'
-                    args "--entrypoint=''"
-                }
-            }
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'aws-jenkins-key', passwordVariable: 'AWS_SECRET_ACCESS_KEY', usernameVariable: 'AWS_ACCESS_KEY_ID')]) {
-                    sh '''
-                        aws --version
-                        aws s3 ls
-                        echo 'hello s3' > index.html
-                        aws s3 cp index.html s3://learn-lenkins-app-2024/index.html
-                    '''
-                }
-            }
-        }
+         
         stage('Build') {
             agent {
                 docker {
@@ -50,6 +33,21 @@ pipeline {
                     sh '''
                       npm ci
                       npm run build
+                    '''
+                }
+            }
+        }
+         stage('AWS') {
+            agent {
+                docker {
+                    image 'amazon/aws-cli'
+                    args "--entrypoint=''"
+                }
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'aws-jenkins-key', passwordVariable: 'AWS_SECRET_ACCESS_KEY', usernameVariable: 'AWS_ACCESS_KEY_ID')]) {
+                    sh '''
+                        aws s3 sync build s3://learn-lenkins-app-2024
                     '''
                 }
             }
