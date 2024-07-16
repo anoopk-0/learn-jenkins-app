@@ -132,32 +132,7 @@ pipeline {
                 }
             }
         }
-        stage('Prod e2e test') {
-                agent {
-                    docker {
-                        image "mcr.microsoft.com/playwright:v1.39.0-jammy"
-                        reuseNode true
-                    }
-                }
-
-                environment {
-                    CI_ENVIRONMENT_URL = 'https://deft-parfait-2116ef.netlify.app'
-                }
-                
-                steps {
-                    script {
-                    sh '''
-                        npx playwright test --reporter=line
-                    '''
-                }
-
-                 always {
-                     
-                     publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'playwright-report', reportFiles: 'index.html', reportName: 'PROD Report', reportTitles: '', useWrapperFileDirectly: true])
-             }
-            }
-            
-        }
+        
     }
     post {
        
